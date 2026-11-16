@@ -58,27 +58,27 @@ SGL_DEVICE uint32_t mapa_shared(Addr addr, uint32_t rank) {
 // a consumer waiting for the producer's first signal starts at 0, a producer waiting on a never-used slot at 1.
 template <MBarAddress Bar>
 SGL_DEVICE void mbar_init(Bar bar, uint32_t count) {
-  asm volatile("mbarrier.init.shared.b64 [%0], %1;" ::"r"(to_shared(bar)), "r"(count) : "memory");
+  asm volatile("mbarrier.init.shared.b64 [%0], %1;" ::"r"(to_shared(bar)), "r"(count));
 }
 
 template <MBarAddress Bar>
 SGL_DEVICE uint64_t mbar_arrive(Bar bar) {
   uint64_t state;
-  asm volatile("mbarrier.arrive.shared.b64 %0, [%1];" : "=l"(state) : "r"(to_shared(bar)) : "memory");
+  asm volatile("mbarrier.arrive.shared.b64 %0, [%1];" : "=l"(state) : "r"(to_shared(bar)));
   return state;
 }
 
 template <MBarAddress Bar>
 SGL_DEVICE uint64_t mbar_arrive_relaxed(Bar bar) {
   uint64_t state;
-  asm volatile("mbarrier.arrive.relaxed.cta.shared::cta.b64 %0, [%1];" : "=l"(state) : "r"(to_shared(bar)) : "memory");
+  asm volatile("mbarrier.arrive.relaxed.cta.shared::cta.b64 %0, [%1];" : "=l"(state) : "r"(to_shared(bar)));
   return state;
 }
 
 // Combined arrive + set tx-count, for TMA-load completion.
 template <MBarAddress Bar>
 SGL_DEVICE void mbar_arrive_expect_tx(Bar bar, uint32_t bytes) {
-  asm volatile("mbarrier.arrive.expect_tx.shared.b64 _, [%0], %1;" ::"r"(to_shared(bar)), "r"(bytes) : "memory");
+  asm volatile("mbarrier.arrive.expect_tx.shared.b64 _, [%0], %1;" ::"r"(to_shared(bar)), "r"(bytes));
 }
 
 // Sets the transaction count of the current phase without arriving (the arrivals come separately).
@@ -95,8 +95,7 @@ SGL_DEVICE void mbar_wait_parity(Bar bar, uint32_t parity) {
       "{\n\t.reg .pred p;\n\t"
       "WAIT_%=: mbarrier.try_wait.parity.shared.b64 p, [%0], %1;\n\t"
       "@!p bra WAIT_%=;\n\t}\n" ::"r"(to_shared(bar)),
-      "r"(parity)
-      : "memory");
+      "r"(parity));
 }
 
 // With a suspendTimeHint (ns): the thread may sleep until the phase completes instead of re-polling smem.
