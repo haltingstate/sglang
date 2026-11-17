@@ -1203,12 +1203,37 @@ class MqaAttentionBase(nn.Module):
                 else 0
             )
         )
+        # The reference for DeepSeek-V4.1-Flash reads the YaRN factor from
+        # `args.rope_factor`, whose default is 40, and never from
+        # `rope_scaling["factor"]`. See inference/model.py lines 70 and 480-481 of
+        # https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/blob/2b2bebc1776b2cf88ca36f0b5b6f816ae0f5892f/inference/model.py#L475-L479
+        # The published DeepSeek-V4-Flash config.json sets rope_scaling.factor to
+        # 16 and omits rope_factor, so this line and the reference disagree by
+        # 40/16 = 2.5x on the interpolated frequency band of every compressed
+        # layer. The fallback below is 1.0, which would disagree by 40x if a
+        # checkpoint omitted `factor` entirely. Neither value is the reference
+        # default of 40.
+        rope_factor: float = scaling.get("factor", 1.0)
+        assert rope_factor != 1.0, (
+            "deepseek_v4: rope_scaling has no 'factor', so the YaRN factor fell "
+            "back to 1.0. The DeepSeek-V4.1-Flash reference uses "
+            "args.rope_factor, default 40 (inference/model.py line 70). "
+            "Set rope_scaling.factor in config.json."
+        )
+        if rope_factor != 40:
+            logger.warning(
+                "deepseek_v4: YaRN factor is %s, but the DeepSeek-V4.1-Flash "
+                "reference default is 40 (args.rope_factor, inference/model.py "
+                "line 70). Compressed layers will use a different frequency "
+                "band than the reference.",
+                rope_factor,
+            )
         self.rope_kwargs = dict(
             dim=self.qk_rope_head_dim,
             seqlen=config.max_position_embeddings,
             original_seq_len=original_seq_len,
             base=self.rope_base,
-            factor=scaling.get("factor", 1.0),
+            factor=rope_factor,
             beta_fast=scaling.get("beta_fast", 32),
             beta_slow=scaling.get("beta_slow", 1),
         )
