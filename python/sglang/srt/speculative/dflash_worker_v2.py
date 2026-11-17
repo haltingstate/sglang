@@ -903,6 +903,14 @@ class DFlashWorkerV2(BaseSpecWorker):
         KV cache sizing nor any graph capture has happened yet (it merges the head's weights)."""
         if self.selector is None or envs.SGLANG_DISABLE_DFLASH2_FUSED_SELECT.get():
             return None
+        if megakernel_enabled():
+            # The megakernel was built on the target before this runs and may hold the head's
+            # weights, which the merge would move; it also brings its own draft selector head.
+            if self._target_tp_rank == 0:
+                logger.warning(
+                    "DFlash2 fused selection disabled: the NVIDIA megakernel serves DFLASH."
+                )
+            return None
         target_model = self._target_worker.model_runner.model
         draft_config = self.draft_model.draft_config
         fused_select, blocker = build_fused_select(
