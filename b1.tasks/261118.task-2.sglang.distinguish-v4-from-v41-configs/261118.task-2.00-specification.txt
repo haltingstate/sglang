@@ -1,0 +1,72 @@
+TASK-2: Distinguish DeepSeek-V4-Flash from DeepSeek-V4.1-Flash in the model config path
+
+Repository: sglang(work-repo)
+Created: 2026-11-18
+Author: haltingstate
+Status: pending
+
+OBJECTIVE:
+DeepSeek-V4-Flash and DeepSeek-V4.1-Flash are 2 different models with
+different layer counts, expert counts, and compression-ratio tuples, and
+SGLang serves both from one file, `python/sglang/srt/models/deepseek_v4.py`.
+A reader who compares the V4 reference implementation against a running V4.1
+server compares 2 different models without knowing it. This task makes the
+difference visible at the 2 places a reader looks first: the model file's
+docstring and the startup log line that names the model type.
+
+REQUIREMENTS:
+
+- Requirement 1: the module docstring of
+  `python/sglang/srt/models/deepseek_v4.py` must state that the file serves
+  both `model_type: deepseek_v4` and `model_type: deepseek_v41`, and must name
+  the 3 fields that differ in a way that changes the attention path:
+  `num_hidden_layers`, `n_routed_experts`, and `compress_ratios`. It must not
+  claim that one config describes both.
+
+- Requirement 2: the startup log must print the resolved `model_type`, the
+  resolved `compress_ratios` length, and the resolved YaRN `factor` and
+  `original_max_position_embeddings`, so an operator can read the 4 values
+  that decide the RoPE policy without opening `config.json`.
+
+- Requirement 3: a config whose `model_type` is `deepseek_v41` but whose
+  `compress_ratios` has the V4 shape, or the reverse, must fail at startup
+  with an error naming both fields. The 2 published shapes are:
+  - V4: 44 entries, prefix `0, 0, 4, 128, 4, 128, 4, 128`
+  - V4.1: 43 entries, prefix `0, 0, 2, 2, 2, 2, 2, 2`
+
+- Requirement 4: the check must not hardcode the 2 published tuples as the
+  only valid ones. A future checkpoint with a third shape must start, and the
+  log line from Requirement 2 must show its shape. The check rejects only the
+  case where the declared `model_type` contradicts the shape it is known to
+  carry.
+
+- Requirement 5: the 2 reference configs must be added under
+  `test/registered/` as fixtures, so the test that covers Requirement 3 reads
+  a real config and not a hand-built dict.
+
+ACCEPTANCE CRITERIA:
+
+- [ ] The module docstring of `deepseek_v4.py` names both `model_type` values
+      and the 3 differing fields.
+- [ ] A server started on the V4.1 config logs `model_type`, the
+      `compress_ratios` length, `factor`, and
+      `original_max_position_embeddings`.
+- [ ] A config with `model_type: deepseek_v41` and a 44-entry
+      `compress_ratios` fails at startup, and the error names both fields.
+- [ ] A config with `model_type: deepseek_v4` and a 43-entry
+      `compress_ratios` fails at startup, and the error names both fields.
+- [ ] A config with a third `compress_ratios` shape starts, and the log line
+      shows that shape.
+- [ ] A test in `test/registered/` covers the 2 rejection cases and the 1
+      acceptance case, using the 2 fixture configs.
+
+================================================================================
+RAW PROMPTS
+================================================================================
+
+[2026-11-18 22:30] note that deep seek v4 and v4.1 flash are DIFFERENT models
+with different defaults; dont confuse
+
+[2026-11-18 22:34] make report; which source; which document; is it 4.0 or v
+4.1 deepseek; is document correct; and show the model config (deployed on dgx)
+adn show if matches; add task /goal
