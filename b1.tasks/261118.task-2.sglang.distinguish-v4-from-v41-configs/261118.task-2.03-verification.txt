@@ -1,0 +1,104 @@
+VERIFICATION OF TASK-2 STATEMENTS
+Task: 261118.task-2.sglang.distinguish-v4-from-v41-configs
+Verified: 2026-11-18
+Checkout: origin/main at e4d84dca71
+
+================================================================================
+STATEMENT S1
+Source: .00 OBJECTIVE, "SGLang serves both from one file"
+Verification Method: read the model-type branch lines
+Verification Command: git show origin/main:python/sglang/srt/models/deepseek_v4.py | sed -n '987p;1037p'
+Result: VERIFIED
+Evidence:     if config.model_type == "deepseek_v41" and config.vision_n_layers > 0:
+              self.is_dsv41 = getattr(config, "model_type", None) == "deepseek_v41"
+Notes: The file branches on the model type, so one file serves both models.
+
+================================================================================
+STATEMENT S2
+Source: .00 Requirement 1, the 3 differing fields
+Verification Method: read the field from each published config
+Verification Command: python3 -c "import json; ..." on reference/dsv4-flash.config.json
+                      and reference/dsv41-flash.config.json
+Result: VERIFIED
+Evidence:     V4  : layers=43 routed=256 compress_ratios len=44 prefix=[0,0,4,128,4,128,4,128]
+              V4.1: layers=40 routed=384 compress_ratios len=43 prefix=[0,0,2,2,2,2,2,2]
+Notes: All 3 fields differ. `num_experts_per_tok` is 6 in both, so it is not
+       one of the differing fields.
+
+================================================================================
+STATEMENT S3
+Source: .00 Requirement 3, the 2 published shapes
+Verification Method: read the length and the first 8 entries of each tuple
+Verification Command: the same command as S2
+Result: VERIFIED
+Evidence:     V4  compress_ratios len=44 prefix=[0, 0, 4, 128, 4, 128, 4, 128]
+              V4.1 compress_ratios len=43 prefix=[0, 0, 2, 2, 2, 2, 2, 2]
+Notes: The 2 shapes differ in both length and content, so either field alone
+       distinguishes them.
+
+================================================================================
+STATEMENT S4
+Source: .00 Requirement 2, the 4 values that decide the RoPE policy
+Verification Method: read the values from the V4.1 config, and from the
+                     running server
+Verification Command: python3 -c "import json; ..." on
+                      reference/dsv41-flash.config.json
+                      curl -H "Authorization: Bearer $KEY" \
+                        http://192.168.1.55:12180/get_server_info
+Result: VERIFIED
+Evidence:     rope_scaling: {'rope_type': 'yarn', 'factor': 16, 'beta_fast': 32,
+                            'beta_slow': 1, 'original_max_position_embeddings': 65536}
+              factor -> 16
+              original_max_position_embeddings -> 65536
+              model_path: /models/DeepSeek-V4.1-Flash-1017
+Notes: The 4 values are readable from the config today, but the server does
+       not print them at startup. That is what Requirement 2 adds.
+
+================================================================================
+STATEMENT S5
+Source: .00 Requirement 5, "add the 2 reference configs as fixtures"
+Verification Method: check that the test folder exists and that the configs
+                     are small enough to commit
+Verification Command: git ls-tree -d --name-only origin/main test/registered/
+                      wc -c reference/dsv4-flash.config.json \
+                            reference/dsv41-flash.config.json
+Result: VERIFIED
+Evidence:     test/registered/accuracy
+              test/registered/amd
+              test/registered/attention
+              1749 reference/dsv4-flash.config.json
+              3311 reference/dsv41-flash.config.json
+Notes: Both files are a few kilobytes, so they are reasonable fixtures.
+
+================================================================================
+STATEMENT S6
+Source: .00 Requirement 4, "a future checkpoint with a third shape must start"
+Verification Method: check whether the repository already rejects an unknown
+                     compress_ratios shape
+Verification Command: git show origin/main:python/sglang/srt/models/deepseek_v4.py | grep -n "compress_ratios"
+Result: VERIFIED
+Evidence:     1061:            else config.compress_ratios[layer_id]
+              4047:                config.compress_ratios[last_source + 1 : config.num_hidden_layers]
+Notes: The file reads compress_ratios per layer at line 1061 and slices it at
+       line 4047. A grep for `compress_ratios ==`, `compress_ratios in`, and
+       `assert.*compress_ratios` returns no match, so no existing check rejects
+       an unknown shape. Requirement 4 adds a new constraint rather than
+       relaxing one, and the worker must not introduce a hardcoded tuple list.
+
+================================================================================
+SUMMARY
+
+VERIFIED:           S1, S2, S3, S4, S5, S6  = 6 of 6
+PARTIALLY TRUE:     none                    = 0 of 6
+FALSE:              none                    = 0 of 6
+CANNOT VERIFY:      none                    = 0 of 6
+
+FALSE STATEMENTS: none.
+
+SCOPE CHANGE FORCED: none. The first draft of Requirement 1 listed
+`num_experts_per_tok` among the differing fields. S2 shows it is 6 in both
+models, so the field was removed and `n_routed_experts` stands in its place.
+
+NOT VERIFIED, BY DESIGN: whether a third compress_ratios shape will ever
+appear is a prediction about future checkpoints, not a statement about the
+source, so it carries no block here.
