@@ -1,0 +1,136 @@
+VERIFICATION OF TASK-1 STATEMENTS
+Task: 261118.task-1.sglang.log-runtime-state-changes
+Verified: 2026-11-18
+Checkout: origin/main at e4d84dca71
+
+Every line below was read from origin/main with `git show origin/main:<path>`.
+The working tree is on branch fix/dsv4-rope-factor-default, so a plain `sed`
+would read that branch and not main; every command below names origin/main.
+
+================================================================================
+STATEMENT S1
+Source: .00 Requirement 1, first bullet
+Verification Method: read the line
+Verification Command: git show origin/main:python/sglang/srt/environ.py | sed -n '1535p'
+Result: VERIFIED
+Evidence:     SGLANG_CACHE_DIR = EnvStr(os.path.expanduser("~/.cache/sglang"))
+Notes: The default is the home folder, so it escapes any single write root.
+
+================================================================================
+STATEMENT S2
+Source: .00 Requirement 1, second bullet
+Verification Method: read the line, and read the function it calls
+Verification Command: git show origin/main:python/sglang/srt/environ.py | sed -n '1539p;31,39p'
+Result: VERIFIED
+Evidence:     SGLANG_CUTE_AOT_CACHE_DIR = EnvStr(lambda: _default_cache_subdir("cute_aot"))
+              def _default_cache_subdir(name: str) -> str:
+                  return os.path.join(os.path.expanduser(envs.SGLANG_CACHE_DIR.get()), name)
+Notes: The default tracks SGLANG_CACHE_DIR, so redirecting SGLANG_CACHE_DIR
+       also moves this one. The spec states both because a reader must not
+       assume the tracking.
+
+================================================================================
+STATEMENT S3
+Source: .00 Requirement 1, third bullet
+Verification Method: read the declaration, then find every reader of the value
+Verification Command: git show origin/main:python/sglang/srt/environ.py | sed -n '1549p'
+                      git grep -n "SGLANG_JIT_CACHE_DIR" origin/main -- '*.py'
+Result: PARTIALLY TRUE, corrected
+Evidence:     SGLANG_JIT_CACHE_DIR = EnvStr(None)
+              origin/main:python/sglang/kernels/jit/utils/compile/cache.py:318:
+                  configured = envs.SGLANG_JIT_CACHE_DIR.get() or "~/.cache/sglang/jit"
+              origin/main:python/sglang/kernels/jit/utils/compile/sailify.py:82:
+                  configured = envs.SGLANG_JIT_CACHE_DIR.get() or "~/.cache/sglang/jit"
+Notes: The first draft of the spec said the default is set at environ.py line
+       1549. That is false: line 1549 declares None, and the home-folder
+       default is applied at 2 call sites in the kernels folder. The spec was
+       corrected to name cache.py line 318 and sailify.py line 82.
+       Scope change forced: a worker who redirects only environ.py would miss
+       these 2 fallbacks.
+
+================================================================================
+STATEMENT S4
+Source: .00 Requirement 1, fourth bullet
+Verification Method: read the lines
+Verification Command: git show origin/main:python/sglang/srt/compilation/compiler_interface.py | sed -n '197p;200p'
+Result: VERIFIED
+Evidence:     os.makedirs(inductor_cache, exist_ok=True)
+              os.makedirs(triton_cache, exist_ok=True)
+Notes: The 2 variables holding these paths are not named here; the worker must
+       read the enclosing function to find them.
+
+================================================================================
+STATEMENT S5
+Source: .00 Requirement 1, fifth bullet
+Verification Method: read the lines
+Verification Command: git show origin/main:python/sglang/srt/compilation/backend.py | sed -n '417p;421p'
+Result: VERIFIED
+Evidence:     os.makedirs(cache_dir, exist_ok=True)
+              os.makedirs(local_cache_dir, exist_ok=True)
+Notes: Same as S4: the path variables are local to the enclosing function.
+
+================================================================================
+STATEMENT S6
+Source: .00 Requirement 1, sixth bullet
+Verification Method: read the line
+Verification Command: git show origin/main:python/sglang/srt/arg_groups/serving_hook.py | sed -n '202p'
+Result: VERIFIED
+Evidence:     os.makedirs(coredump_dir, exist_ok=True)
+Notes: A coredump directory is created even when no coredump is written, so a
+       run that never crashes still touches the filesystem here.
+
+================================================================================
+STATEMENT S7
+Source: .00 Requirement 1, seventh bullet
+Verification Method: read the lines
+Verification Command: git show origin/main:python/sglang/benchmark/one_batch.py | sed -n '657p'
+                      git show origin/main:python/sglang/benchmark/serving.py | sed -n '891p'
+Result: VERIFIED
+Evidence:     return os.environ.get("SGLANG_TORCH_PROFILER_DIR", "/tmp")
+              output_dir = os.getenv("SGLANG_TORCH_PROFILER_DIR", "/tmp")
+Notes: Both are benchmark files, not server files. The spec lists them because
+       a benchmark run is the case where the profiler writes the most data.
+
+================================================================================
+STATEMENT S8
+Source: .00 Requirement 5
+Verification Method: check that the record can come from the process itself
+Verification Command: git show origin/main:python/sglang/srt/environ.py | sed -n '1535p'
+Result: VERIFIED
+Evidence:     SGLANG_CACHE_DIR = EnvStr(os.path.expanduser("~/.cache/sglang"))
+Notes: The repository already routes every cache path through an EnvStr
+       declaration, so a single read root and a single write root can be
+       enforced in the same place. This is why Requirement 5 asks for the
+       record to come from the server rather than from a wrapper.
+
+================================================================================
+STATEMENT S9
+Source: .00 Acceptance Criteria, last item
+Verification Method: check that the test folder exists
+Verification Command: git ls-tree -d --name-only origin/main test/registered/
+Result: VERIFIED
+Evidence:     test/registered/accuracy
+              test/registered/amd
+              test/registered/attention
+Notes: The folder exists and holds per-area subfolders, so a new test belongs
+       in a subfolder rather than at the top of test/registered/.
+
+================================================================================
+SUMMARY
+
+VERIFIED:           S1, S2, S4, S5, S6, S7, S8, S9  = 8 of 9
+PARTIALLY TRUE:     S3                              = 1 of 9
+FALSE:              none                            = 0 of 9
+CANNOT VERIFY:      none                            = 0 of 9
+
+FALSE STATEMENTS: none.
+
+SCOPE CHANGE FORCED BY S3: the spec now names cache.py line 318 and
+sailify.py line 82 as the 2 places that apply the home-folder default for the
+JIT cache. A worker who changed only environ.py line 1549 would leave both
+fallbacks in place.
+
+NOT VERIFIED, BY DESIGN: the claim that a wrapper script cannot record the
+Python call site is a design judgement, not a statement about the source, so
+it carries no block here. The claim that a SIGKILL leaves a readable trace
+depends on the flush behaviour the task asks for, which does not exist yet.
