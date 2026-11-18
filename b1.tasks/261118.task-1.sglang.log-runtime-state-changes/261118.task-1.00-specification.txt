@@ -1,0 +1,108 @@
+TASK-1: Log every runtime state change of an SGLang server to one controlled directory
+
+Repository: sglang(work-repo)
+Created: 2026-11-18
+Author: haltingstate
+Status: pending
+
+OBJECTIVE:
+Give an SGLang server run a complete, reviewable record of every state change
+it makes outside its own process, so an operator can answer "what did this run
+open, what did it write, and where" without guessing. The run reads from one
+declared input directory and writes to one declared output directory. Every
+file the process opens for writing, every directory it creates, every file it
+deletes, and every network endpoint it binds is recorded with a before and an
+after entry, so the record shows the state of the filesystem before the run
+and after it.
+
+REQUIREMENTS:
+
+- Requirement 1: one write root. Every path the server process creates or
+  modifies must lie under a single directory named by one environment
+  variable, `SGLANG_RUN_OUTPUT_DIR`. The run must fail at startup, before any
+  model load, if that variable is unset or is not an absolute path. The
+  following paths currently escape to the home folder or to `/tmp` and must be
+  redirected under that root:
+  - `SGLANG_CACHE_DIR`, default `~/.cache/sglang`, set at
+    `python/sglang/srt/environ.py` line 1535
+  - `SGLANG_CUTE_AOT_CACHE_DIR`, default `_default_cache_subdir("cute_aot")`,
+    at line 1539
+  - `SGLANG_JIT_CACHE_DIR`, declared as `None` at line 1549 and resolved to
+    `~/.cache/sglang/jit` at
+    `python/sglang/kernels/jit/utils/compile/cache.py` line 318 and
+    `python/sglang/kernels/jit/utils/compile/sailify.py` line 82
+  - the inductor and Triton caches created at
+    `python/sglang/srt/compilation/compiler_interface.py` lines 197 and 200
+  - the compilation cache created at
+    `python/sglang/srt/compilation/backend.py` lines 417 and 421
+  - the coredump directory created at
+    `python/sglang/srt/arg_groups/serving_hook.py` line 202
+  - the profiler output directory `SGLANG_TORCH_PROFILER_DIR`, which defaults
+    to `/tmp` at `python/sglang/benchmark/one_batch.py` line 657 and
+    `python/sglang/benchmark/serving.py` line 891
+
+- Requirement 2: one read root. The model weights, the tokenizer files, and
+  the dataset files the run reads must lie under a single directory named by
+  `SGLANG_RUN_INPUT_DIR`. The record must name every file the run opened from
+  outside that root, because a read outside the declared input root is the
+  signal that a run is not reproducible.
+
+- Requirement 3: a before and an after snapshot. Before the first model file
+  is opened, write a snapshot of the write root: every path, its size, and its
+  modification time. After the process exits, write a second snapshot of the
+  same root. The record must state the difference as created, modified, and
+  deleted paths.
+
+- Requirement 4: an open-and-write trace. Record every file the process opens
+  for writing, every directory it creates, every file it deletes, and every
+  file it renames. Each entry states the path, the operation, the process id,
+  the wall-clock time, and the Python call site that made the call.
+
+- Requirement 5: the record is written by the server, not by a wrapper. A
+  wrapper script that runs `strace` or `fs_usage` records the syscalls but
+  misses the Python call site, and it cannot run on a host where the tracing
+  tool is unavailable. The record must come from the server process itself, so
+  it works the same way on a bare host, in a container, and on macOS.
+
+- Requirement 6: the record must not grow without bound. A run that writes
+  millions of cache files must not write millions of trace lines. The trace
+  must support a summary mode that records the first N entries per directory
+  and a count for the rest, with N set by `SGLANG_RUN_TRACE_LIMIT_PER_DIR`.
+
+- Requirement 7: the record must survive a crash. Each entry is flushed to
+  disk as it is written, so a run that dies on an out-of-memory kill still
+  leaves a record of what it did before it died.
+
+- Requirement 8: the record must name the run. Each record file carries the
+  start time, the command line, the model path, the git commit of the SGLang
+  checkout, and the host name, so two records can be told apart.
+
+ACCEPTANCE CRITERIA:
+
+- [ ] Starting a server with `SGLANG_RUN_OUTPUT_DIR` unset exits non-zero
+      before any model file is opened, and the error names the variable.
+- [ ] Starting a server with `SGLANG_RUN_OUTPUT_DIR` set to a relative path
+      exits non-zero before any model file is opened.
+- [ ] A completed run writes no file outside `SGLANG_RUN_OUTPUT_DIR`, checked
+      by comparing a `find` of the home folder and `/tmp` before and after the
+      run.
+- [ ] A completed run writes a before snapshot, an after snapshot, and a
+      difference listing, each naming the paths it covers.
+- [ ] The trace names the Python call site for each write, and the call site
+      resolves to a real file and line in the checkout.
+- [ ] A run killed with SIGKILL leaves a readable trace of the writes it made
+      before the kill.
+- [ ] The summary mode caps entries per directory at
+      `SGLANG_RUN_TRACE_LIMIT_PER_DIR` and reports the true total count.
+- [ ] A test in `test/registered/` covers the unset-variable failure, the
+      relative-path failure, and the snapshot difference.
+
+================================================================================
+RAW PROMPTS
+================================================================================
+
+[2026-11-18 01:20] add task; when running sglang; log all changes to
+container/filesystem; before/after/ what opened what file; what wrote what
+file; we need to isolate all state changes/output to a folder/controlled
+directory; single read directory, single write directory; add task to our fork
+repo
